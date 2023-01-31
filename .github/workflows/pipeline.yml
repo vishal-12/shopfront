@@ -1,0 +1,60 @@
+name: Deployer For ArgoCD
+
+on:
+  workflow_dispatch:
+    inputs:
+        dev:
+          description: 'Deploy to Dev'
+          required: false
+          default: 'false'
+          type: boolean
+        stage:
+          description: 'Deploy to Stage'
+          required: false
+          default: 'false'
+          type: boolean
+        qa:
+          description: 'Deploy to qa'
+          required: false
+          default: 'false'
+          type: boolean
+        preprod:
+          description: 'Deploy to preprod'
+          required: false
+          default: 'false'
+          type: boolean
+  push:
+    branches-ignore:
+      - master
+
+env:
+  SERVICE: shopfront
+
+jobs:
+  maven-build:
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/stage' || github.ref == 'refs/heads/preprod' || ${{ github.event.inputs.dev  == 'true'}} || ${{ github.event.inputs.stage  == 'true' }} || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: 'temurin'
+          cache: maven
+
+      - name: maven-settings-xml-action
+        uses: whelk-io/maven-settings-xml-action@v20
+        with:
+          mirrors: '[{"id": "nexus", "name": "nexus", "mirrorOf": "*", "url": "http://54.71.69.202:8081/repository/test01/"}]'
+          servers: '[{ "id": "nexus", "username": "admin", "password": "2getin2itRJG!" }]'
+
+      - run: mvn clean package -DskipTests
+        shell: bash
+        name: Build with Maven
+
+      - name: Save Artifact 
+        uses: actions/upload-artifact@v2
+        with:
+          name: maven-artifact
+          path: ./target/
+          retention-days: 1
