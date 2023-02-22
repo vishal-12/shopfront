@@ -45,8 +45,8 @@ jobs:
       - name: maven-settings-xml-action
         uses: whelk-io/maven-settings-xml-action@v20
         with:
-          mirrors: '[{"id": "nexus", "name": "nexus", "mirrorOf": "*", "url": "http://54.71.69.202:8081/repository/test01/"}]'
-          servers: '[{ "id": "nexus", "username": "admin", "password": "2getin2itRJG!" }]'
+          mirrors: '[{"id": "nexus", "name": "nexus", "mirrorOf": "*", "url": "http://ec2-43-205-125-105.ap-south-1.compute.amazonaws.com:8081/repository/test01/"}]'
+          servers: '[{ "id": "nexus", "username": "admin", "password": "${{ secrets.NEXUSPASSWORD }}"}]'
 
       - run: mvn clean package -DskipTests
         shell: bash
@@ -58,3 +58,80 @@ jobs:
           name: maven-artifact
           path: ./target/
           retention-days: 1
+          
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [maven-build]
+    steps:
+      # - name: Nexus Repo Publish
+      #   uses: sonatype-nexus-community/nexus-repo-github-action@master
+      #   with:
+      #     serverUrl: http://nexusaalb-283387229.us-west-2.elb.amazonaws.com/
+      #     username: admin
+      #     password: ${{ secrets.NEXUSPASSWORD }}
+      #     format: maven2
+      #     repository: maven-releases
+      #     coordinates: groupId=com.dizzion.c3 artifactId=security version=1.0.${{ github.run_number }}
+      #     assets: extension=war
+      #     filename: ./target/security-portal-boot-0.0.1-SNAPSHOT.war
+      - uses: actions/checkout@v3
+      - name: Retrieve saved Maven Artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: maven-artifact
+          path: ./target/
+
+      - name: "Configure AWS Credentials" 
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id:  ${{ secrets.SAAS_DEV_AWS }}
+          aws-secret-access-key: ${{ secrets.SAAS_DEV_AWS_SEC }}
+          aws-region: us-west-2
+
+      - name: "Docker Login"
+        run: aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 282054752894.dkr.ecr.us-west-2.amazonaws.com
+
+      - run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+        id: vars
+        shell: bash
+
+      - name: Build the Docker image
+        run: docker build . --file Dockerfile --tag 239663018538.dkr.ecr.ap-south-1.amazonaws.com/shopfront:${{ github.sha }}
+
+      - name: ECR Login
+        run: aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 239663018538.dkr.ecr.ap-south-1.amazonaws.com/shopfront
+
+      - name: Push Docker image to ECR
+        run: docker push 239663018538.dkr.ecr.ap-south-1.amazonaws.com/shopfront:${{ github.sha }}
+  
+  dev:
+    name: Deploy for Dev
+    if: (github.event.ref == 'refs/heads/dev') || (github.event.inputs.dev  == 'true')
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+      id: vars
+      shell: bash
+
+    - uses: actions/checkout@v3
+      with:
+        repository: vishal-12/c3_saas
+        ref: refs/heads/main
+        token: ${{ secrets.TOKEN }}
+        
+    #update Image Url and update deployment yaml file
+    - name: Update Version
+      run: |
+          image=239663018538.dkr.ecr.ap-south-1.amazonaws.com/shopfront:${{ github.sha }}
+          version=$(cat shopfront/deployment.yaml | grep image: | awk '{print $2}')
+          sed -i "s|$version|$image|g" shopfront/deployment.yaml
+          
+    #Commit and push changes to GitOps Repo
+    - name: GitHub Commit & Push
+      uses: actions-js/push@v1.3
+      with:
+        github_token: ${{ secrets.TOKEN }}
+        repository:  vishal-12/c3_saas
+        branch: main
