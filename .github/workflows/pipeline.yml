@@ -45,7 +45,7 @@ jobs:
       - name: maven-settings-xml-action
         uses: whelk-io/maven-settings-xml-action@v20
         with:
-          mirrors: '[{"id": "nexus", "name": "nexus", "mirrorOf": "*", "url": "http://ec2-43-205-125-105.ap-south-1.compute.amazonaws.com:8081/repository/test01/"}]'
+          mirrors: '[{"id": "nexus", "name": "nexus", "mirrorOf": "*", "url": "http://ec2-43-205-125-105.ap-south-1.compute.amazonaws.com:8081/repository/shopfront/"}]'
           servers: '[{ "id": "nexus", "username": "admin", "password": "${{ secrets.NEXUSPASSWORD }}"}]'
 
       - run: mvn clean package -DskipTests
